@@ -497,6 +497,17 @@ function Sales({ sales, setSales, products, setProducts, clients }) {
   const editProd = products.find(p => p.name === editForm.marca);
   const editUnitPrice = editForm.customPrice !== "" ? +editForm.customPrice : editProd?.price || 0;
 
+  const [salesSearch, setSalesSearch] = useState("");
+
+  const ventasFiltradas = salesSearch.trim()
+    ? [...sales].reverse().filter(s =>
+        s.client.toLowerCase().includes(salesSearch.toLowerCase()) ||
+        s.marca.toLowerCase().includes(salesSearch.toLowerCase()) ||
+        (s.pago || "").toLowerCase().includes(salesSearch.toLowerCase()) ||
+        (s.date || "").includes(salesSearch)
+      )
+    : [...sales].reverse();
+
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -619,7 +630,21 @@ function Sales({ sales, setSales, products, setProducts, clients }) {
         </FormBox>
       )}
 
-      {[...sales].reverse().map(s => (
+      {/* Buscador de ventas */}
+      {!adding && (
+        <input
+          placeholder="🔍 Buscar por cliente, marca, pago o fecha…"
+          value={salesSearch}
+          onChange={e => setSalesSearch(e.target.value)}
+          style={{
+            background: COLORS.surfaceHigh, border: "none", borderRadius: 10,
+            color: COLORS.text, padding: "10px 14px", fontSize: 13,
+            width: "100%", outline: "none", boxSizing: "border-box", marginBottom: 12,
+          }}
+        />
+      )}
+
+      {ventasFiltradas.map(s => (
         <div key={s.id} style={{
           background: COLORS.surface, borderRadius: 12, padding: "12px 14px", marginBottom: 8,
           borderLeft: `3px solid ${getBrandColor(s.marca)}`,
@@ -721,7 +746,8 @@ function Clients({ clients, setClients, sales }) {
   const [editId, setEditId] = useState(null);
   const [form, setForm] = useState({ name: "", phone: "", direccion: "", notas: "" });
   const [editForm, setEditForm] = useState({});
-  const [vista, setVista] = useState("todos"); // todos | deudores | proximos
+  const [vista, setVista] = useState("todos");
+  const [busqueda, setBusqueda] = useState("");
 
   const save = () => {
     if (!form.name) return;
@@ -796,6 +822,20 @@ function Clients({ clients, setClients, sales }) {
           }}>{l}</button>
         ))}
       </div>
+
+      {/* Buscador — solo en vista Todos */}
+      {vista === "todos" && (
+        <input
+          placeholder="🔍 Buscar por nombre, teléfono o dirección…"
+          value={busqueda}
+          onChange={e => setBusqueda(e.target.value)}
+          style={{
+            background: COLORS.surfaceHigh, border: "none", borderRadius: 10,
+            color: COLORS.text, padding: "10px 14px", fontSize: 13,
+            width: "100%", outline: "none", boxSizing: "border-box", marginBottom: 12,
+          }}
+        />
+      )}
 
       {/* Total deuda */}
       {vista === "deudores" && (
@@ -892,7 +932,12 @@ function Clients({ clients, setClients, sales }) {
             ))}
           </div>
         </div>
-      )) : clients.map(c => {
+      )) : clients.filter(c =>
+        !busqueda.trim() ||
+        c.name.toLowerCase().includes(busqueda.toLowerCase()) ||
+        (c.phone || "").includes(busqueda) ||
+        (c.direccion || "").toLowerCase().includes(busqueda.toLowerCase())
+      ).map(c => {
         const compras = sales.filter(s => s.client === c.name);
         const totalComprado = compras.reduce((a, s) => a + s.total, 0);
         const unidades = compras.reduce((a, s) => a + s.qty, 0);
