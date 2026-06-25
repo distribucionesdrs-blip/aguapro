@@ -281,7 +281,7 @@ function Dashboard({ sales, products }) {
 }
 
 // ─── Inventario ───────────────────────────────────────────────────────────────
-function Inventory({ products, setProducts, sales }) {
+function Inventory({ products, setProducts, sales, envases }) {
   const [editId, setEditId] = useState(null);
   const [editForm, setEditForm] = useState({});
   const [adding, setAdding] = useState(false);
@@ -326,6 +326,9 @@ function Inventory({ products, setProducts, sales }) {
     .filter(s => BIDONES_MARCAS.includes(s.marca))
     .reduce((a, s) => a + s.qty, 0);
 
+  // Prestados pendientes de recojo
+  const totalPrestados = (envases || []).reduce((a, e) => a + e.qty, 0);
+
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -334,22 +337,30 @@ function Inventory({ products, setProducts, sales }) {
       </div>
 
       {/* Resumen de envases */}
-      <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+      <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
         <div style={{
-          flex: 1, background: COLORS.surface, borderRadius: 14, padding: "14px 16px",
+          flex: "1 1 120px", background: COLORS.surface, borderRadius: 14, padding: "14px 16px",
           borderBottom: `3px solid ${COLORS.accent}`,
         }}>
-          <div style={{ color: COLORS.muted, fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>Envases en stock</div>
+          <div style={{ color: COLORS.muted, fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>En stock</div>
           <div style={{ color: COLORS.accent, fontSize: 28, fontWeight: 800, marginTop: 4 }}>{totalBidones}</div>
           <div style={{ color: COLORS.muted, fontSize: 11 }}>Fresh + Vital + Spring</div>
         </div>
         <div style={{
-          flex: 1, background: COLORS.surface, borderRadius: 14, padding: "14px 16px",
+          flex: "1 1 120px", background: COLORS.surface, borderRadius: 14, padding: "14px 16px",
           borderBottom: `3px solid ${COLORS.amber}`,
         }}>
-          <div style={{ color: COLORS.muted, fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>Envases vacíos</div>
+          <div style={{ color: COLORS.muted, fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>Vacíos</div>
           <div style={{ color: COLORS.amber, fontSize: 28, fontWeight: 800, marginTop: 4 }}>{totalVendidos}</div>
-          <div style={{ color: COLORS.muted, fontSize: 11 }}>bidones despachados</div>
+          <div style={{ color: COLORS.muted, fontSize: 11 }}>despachados</div>
+        </div>
+        <div style={{
+          flex: "1 1 120px", background: COLORS.surface, borderRadius: 14, padding: "14px 16px",
+          borderBottom: `3px solid ${COLORS.danger}`,
+        }}>
+          <div style={{ color: COLORS.muted, fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>Prestados</div>
+          <div style={{ color: COLORS.danger, fontSize: 28, fontWeight: 800, marginTop: 4 }}>{totalPrestados}</div>
+          <div style={{ color: COLORS.muted, fontSize: 11 }}>por recoger</div>
         </div>
       </div>
 
@@ -1327,7 +1338,7 @@ export default function App() {
 
   const screens = {
     dashboard: <Dashboard sales={sales} products={products} />,
-    inventory:  <Inventory products={products} setProducts={setProducts} sales={sales} />,
+    inventory:  <Inventory products={products} setProducts={setProducts} sales={sales} envases={envases} />,
     sales:      <Sales sales={sales} setSales={setSales} products={products} setProducts={setProducts} clients={clients} />,
     clients:    <Clients clients={clients} setClients={setClients} sales={sales} />,
     envases:    <Envases envases={envases} setEnvases={setEnvases} clients={clients} products={products} setProducts={setProducts} />,
