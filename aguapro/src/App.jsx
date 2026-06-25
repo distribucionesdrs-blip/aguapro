@@ -429,10 +429,12 @@ function Inventory({ products, setProducts, sales, envases }) {
 
 // ─── Ventas ───────────────────────────────────────────────────────────────────
 function Sales({ sales, setSales, products, setProducts, clients }) {
-  const [form, setForm] = useState({ client: "", marca: "", qty: 1, customPrice: "", pago: "" });
+  const [form, setForm] = useState({ client: "", marca: "", qty: 1, customPrice: "", pago: "", tipoVenta: "A" });
   const [adding, setAdding] = useState(false);
   const [editId, setEditId] = useState(null);
   const [editForm, setEditForm] = useState({});
+
+  const PRECIO_ENVASE = 25;
 
   const adjustStock = (marca, delta) => {
     setProducts(prev => prev.map(p => p.name === marca ? { ...p, stock: Math.max(0, p.stock + delta) } : p));
@@ -441,11 +443,18 @@ function Sales({ sales, setSales, products, setProducts, clients }) {
   const save = () => {
     const prod = products.find(p => p.name === form.marca);
     if (!form.client || !prod || form.qty < 1 || !form.pago) return;
-    const unitPrice = form.customPrice !== "" ? +form.customPrice : prod.price;
+    const precioAgua = form.customPrice !== "" ? +form.customPrice : prod.price;
+    const precioEnvase = form.tipoVenta === "C" ? PRECIO_ENVASE : 0;
+    const unitPrice = precioAgua + precioEnvase;
     const total = unitPrice * +form.qty;
-    setSales([...sales, { id: Date.now(), client: form.client, marca: form.marca, qty: +form.qty, unitPrice, total, pago: form.pago, date: today() }]);
+    setSales([...sales, {
+      id: Date.now(), client: form.client, marca: form.marca,
+      qty: +form.qty, unitPrice, precioAgua, precioEnvase,
+      total, pago: form.pago, tipoVenta: form.tipoVenta, date: today(),
+    }]);
     adjustStock(form.marca, -form.qty);
-    setForm({ client: "", marca: "", qty: 1, customPrice: "", pago: "" });
+    setForm({ client: "", marca: "", qty: 1, customPrice: "", pago: "", tipoVenta: "A" });
+    setClientSearch("");
     setAdding(false);
   };
 
@@ -551,6 +560,23 @@ function Sales({ sales, setSales, products, setProducts, clients }) {
               <option key={p.id} value={p.name}>{p.name} — {fmt(p.price)} (stock: {p.stock})</option>
             ))}
           </Select>
+
+          {/* Tipo de venta */}
+          <div style={{ color: COLORS.muted, fontSize: 11, fontWeight: 600 }}>TIPO DE VENTA</div>
+          <div style={{ display: "flex", gap: 8 }}>
+            {[
+              { id: "A", label: "A — Entrega su envase", color: COLORS.accent },
+              { id: "B", label: "B — Se le presta", color: COLORS.amber },
+              { id: "C", label: "C — Compra envase", color: COLORS.danger },
+            ].map(t => (
+              <button key={t.id} onClick={() => setForm({ ...form, tipoVenta: t.id })} style={{
+                flex: 1, padding: "8px 4px", borderRadius: 10, border: "none",
+                background: form.tipoVenta === t.id ? t.color : COLORS.surfaceHigh,
+                color: form.tipoVenta === t.id ? "#0F1D35" : COLORS.muted,
+                fontWeight: 700, fontSize: 11, cursor: "pointer", lineHeight: 1.4,
+              }}>{t.label}</button>
+            ))}
+          </div>
           <div style={{ display: "flex", gap: 8 }}>
             <Input placeholder="Cantidad" type="number" value={form.qty} onChange={e => setForm({ ...form, qty: e.target.value })} />
             <Input
@@ -572,10 +598,19 @@ function Sales({ sales, setSales, products, setProducts, clients }) {
           </div>
           {form.customPrice !== "" && selectedProd && (
             <div style={{ color: COLORS.amber, fontSize: 11 }}>
-              Precio base: {fmt(selectedProd.price)} → Precio personalizado: {fmt(form.customPrice)}
+              Precio agua base: {fmt(selectedProd.price)} → Personalizado: {fmt(form.customPrice)}
             </div>
           )}
-          {selectedProd && form.qty > 0 && (
+          {form.tipoVenta === "C" && (
+            <div style={{ background: COLORS.surfaceHigh, borderRadius: 10, padding: "10px 12px", fontSize: 12 }}>
+              <div style={{ color: COLORS.muted }}>💧 Agua: {fmt(form.customPrice !== "" ? +form.customPrice : selectedProd?.price || 0)}</div>
+              <div style={{ color: COLORS.muted }}>🪣 Envase: {fmt(PRECIO_ENVASE)}</div>
+              <div style={{ color: COLORS.accent, fontWeight: 700, marginTop: 4 }}>
+                Total x{form.qty}: {fmt((((form.customPrice !== "" ? +form.customPrice : selectedProd?.price || 0) + PRECIO_ENVASE)) * +form.qty)}
+              </div>
+            </div>
+          )}
+          {form.tipoVenta !== "C" && selectedProd && form.qty > 0 && (
             <div style={{ color: COLORS.accent, fontSize: 13, fontWeight: 600 }}>
               Total: {fmt(newUnitPrice * form.qty)}
             </div>
@@ -645,6 +680,14 @@ function Sales({ sales, setSales, products, setProducts, clients }) {
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div>
                   <MarcaDot marca={s.marca} />
+                  {s.tipoVenta && (
+                    <span style={{
+                      display: "inline-block", marginLeft: 6,
+                      background: s.tipoVenta === "A" ? COLORS.accent + "22" : s.tipoVenta === "B" ? COLORS.amber + "22" : COLORS.danger + "22",
+                      color: s.tipoVenta === "A" ? COLORS.accent : s.tipoVenta === "B" ? COLORS.amber : COLORS.danger,
+                      borderRadius: 99, padding: "1px 8px", fontSize: 10, fontWeight: 700,
+                    }}>Tipo {s.tipoVenta}</span>
+                  )}
                   <div style={{ color: COLORS.text, fontSize: 13, fontWeight: 600, marginTop: 4 }}>{s.client}</div>
                   <div style={{ color: COLORS.muted, fontSize: 11 }}>
                     ×{s.qty} uds. · {s.unitPrice ? fmt(s.unitPrice) + "/u" : ""} · {s.date}{s.vendedor ? ` · Vendedor: ${s.vendedor}` : ""}
