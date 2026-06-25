@@ -83,9 +83,9 @@ const initialProducts = [
 ];
 
 const initialClients = [
-  { id: 1, name: "Restaurante El Buen Sabor", phone: "555-1001", direccion: "Av. Central 123" },
-  { id: 2, name: "Oficinas García & Asociados", phone: "555-2002", direccion: "Calle 5 Norte 88" },
-  { id: 3, name: "Juan Pérez", phone: "555-3003", direccion: "Pasaje Los Olivos 4" },
+  { id: 1, name: "Restaurante El Buen Sabor", phone: "555-1001", direccion: "Av. Central 123", notas: "" },
+  { id: 2, name: "Oficinas García & Asociados", phone: "555-2002", direccion: "Calle 5 Norte 88", notas: "" },
+  { id: 3, name: "Juan Pérez", phone: "555-3003", direccion: "Pasaje Los Olivos 4", notas: "" },
 ];
 
 const initialSales = [
@@ -665,20 +665,20 @@ function Sales({ sales, setSales, products, setProducts, clients }) {
 function Clients({ clients, setClients, sales }) {
   const [adding, setAdding] = useState(false);
   const [editId, setEditId] = useState(null);
-  const [form, setForm] = useState({ name: "", phone: "", direccion: "" });
+  const [form, setForm] = useState({ name: "", phone: "", direccion: "", notas: "" });
   const [editForm, setEditForm] = useState({});
   const [vista, setVista] = useState("todos"); // todos | deudores | proximos
 
   const save = () => {
     if (!form.name) return;
     setClients([...clients, { id: Date.now(), ...form }]);
-    setForm({ name: "", phone: "", direccion: "" });
+    setForm({ name: "", phone: "", direccion: "", notas: "" });
     setAdding(false);
   };
 
   const startEdit = (c) => {
     setEditId(c.id);
-    setEditForm({ name: c.name, phone: c.phone, direccion: c.direccion });
+    setEditForm({ name: c.name, phone: c.phone, direccion: c.direccion, notas: c.notas || "" });
   };
 
   const saveEdit = (id) => {
@@ -761,6 +761,17 @@ function Clients({ clients, setClients, sales }) {
           <Input placeholder="Nombre / Empresa" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
           <Input placeholder="Teléfono" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} />
           <Input placeholder="Dirección de entrega" value={form.direccion} onChange={e => setForm({ ...form, direccion: e.target.value })} />
+          <textarea
+            placeholder="Anotaciones (horario, piso, referencias, etc.)"
+            value={form.notas}
+            onChange={e => setForm({ ...form, notas: e.target.value })}
+            style={{
+              background: COLORS.surfaceHigh, border: "none", borderRadius: 10,
+              color: COLORS.text, padding: "10px 14px", fontSize: 13,
+              width: "100%", minHeight: 70, outline: "none", boxSizing: "border-box",
+              resize: "vertical", lineHeight: 1.5, fontFamily: "system-ui",
+            }}
+          />
           <Btn onClick={save}>Guardar Cliente</Btn>
         </FormBox>
       )}
@@ -839,6 +850,17 @@ function Clients({ clients, setClients, sales }) {
                 <Input placeholder="Nombre / Empresa" value={editForm.name} onChange={e => setEditForm({ ...editForm, name: e.target.value })} />
                 <Input placeholder="Teléfono" value={editForm.phone} onChange={e => setEditForm({ ...editForm, phone: e.target.value })} />
                 <Input placeholder="Dirección" value={editForm.direccion} onChange={e => setEditForm({ ...editForm, direccion: e.target.value })} />
+                <textarea
+                  placeholder="Anotaciones"
+                  value={editForm.notas || ""}
+                  onChange={e => setEditForm({ ...editForm, notas: e.target.value })}
+                  style={{
+                    background: COLORS.surfaceHigh, border: "none", borderRadius: 10,
+                    color: COLORS.text, padding: "10px 14px", fontSize: 13,
+                    width: "100%", minHeight: 70, outline: "none", boxSizing: "border-box",
+                    resize: "vertical", lineHeight: 1.5, fontFamily: "system-ui",
+                  }}
+                />
                 <div style={{ display: "flex", gap: 8 }}>
                   <Btn small onClick={() => saveEdit(c.id)}>Guardar</Btn>
                   <Btn small color={COLORS.surfaceHigh} onClick={() => setEditId(null)}>Cancelar</Btn>
@@ -851,6 +873,7 @@ function Clients({ clients, setClients, sales }) {
                     <div style={{ color: COLORS.text, fontSize: 14, fontWeight: 700 }}>{c.name}</div>
                     <div style={{ color: COLORS.muted, fontSize: 11 }}>📞 {c.phone}</div>
                     <div style={{ color: COLORS.muted, fontSize: 11 }}>📍 {c.direccion}</div>
+                    {c.notas && <div style={{ color: COLORS.amber, fontSize: 11, marginTop: 4 }}>📝 {c.notas}</div>}
                   </div>
                 </div>
                 {unidades > 0 && (
@@ -1061,12 +1084,169 @@ function Importer({ products, setProducts, clients, setClients, setSales }) {
   );
 }
 
+// ─── Envases Prestados ────────────────────────────────────────────────────────
+function Envases({ envases, setEnvases, clients, products, setProducts }) {
+  const [adding, setAdding] = useState(false);
+  const [form, setForm] = useState({ client: "", marca: "", qty: 1, notas: "", date: today() });
+  const [clientSearch, setClientSearch] = useState("");
+  const [showList, setShowList] = useState(false);
+
+  const clientesFiltrados = clientSearch.trim()
+    ? clients.filter(c =>
+        c.name.toLowerCase().includes(clientSearch.toLowerCase()) ||
+        (c.direccion || "").toLowerCase().includes(clientSearch.toLowerCase())
+      )
+    : clients;
+
+  const save = () => {
+    if (!form.client || !form.marca || form.qty < 1) return;
+    setEnvases([...envases, { id: Date.now(), ...form, qty: +form.qty }]);
+    // Descontar del stock
+    setProducts(prev => prev.map(p => p.name === form.marca ? { ...p, stock: Math.max(0, p.stock - +form.qty) } : p));
+    setForm({ client: "", marca: "", qty: 1, notas: "", date: today() });
+    setClientSearch("");
+    setAdding(false);
+  };
+
+  const recoger = (id) => {
+    const envase = envases.find(e => e.id === id);
+    if (envase) {
+      // Reponer al stock
+      setProducts(prev => prev.map(p => p.name === envase.marca ? { ...p, stock: p.stock + envase.qty } : p));
+    }
+    setEnvases(envases.filter(e => e.id !== id));
+  };
+
+  const totalPrestados = envases.reduce((a, e) => a + e.qty, 0);
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <SectionTitle>Envases Prestados</SectionTitle>
+        <Btn small onClick={() => setAdding(!adding)}>{adding ? "Cancelar" : "+ Préstamo"}</Btn>
+      </div>
+
+      {/* Resumen */}
+      <div style={{
+        background: COLORS.surface, borderRadius: 14, padding: "14px 16px", marginBottom: 14,
+        borderBottom: `3px solid ${COLORS.amber}`,
+      }}>
+        <div style={{ color: COLORS.muted, fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>Pendientes de recojo</div>
+        <div style={{ color: COLORS.amber, fontSize: 28, fontWeight: 800, marginTop: 4 }}>{totalPrestados}</div>
+        <div style={{ color: COLORS.muted, fontSize: 11 }}>{envases.length} cliente(s) con envases fuera</div>
+      </div>
+
+      {adding && (
+        <FormBox>
+          <div style={{ color: COLORS.accent, fontSize: 13, fontWeight: 700 }}>Registrar préstamo</div>
+
+          {/* Búsqueda cliente */}
+          <div style={{ position: "relative" }}>
+            <input
+              placeholder="🔍 Buscar cliente…"
+              value={clientSearch}
+              onChange={e => { setClientSearch(e.target.value); setShowList(true); setForm({ ...form, client: "" }); }}
+              onFocus={() => setShowList(true)}
+              style={{
+                background: COLORS.surfaceHigh, border: `2px solid ${form.client ? COLORS.accent : "transparent"}`,
+                borderRadius: 10, color: COLORS.text, padding: "10px 14px",
+                fontSize: 14, width: "100%", outline: "none", boxSizing: "border-box",
+              }}
+            />
+            {form.client && (
+              <div style={{ color: COLORS.accent, fontSize: 11, fontWeight: 600, marginTop: 4 }}>✓ {form.client}</div>
+            )}
+            {showList && clientSearch.trim() && !form.client && (
+              <div style={{
+                position: "absolute", top: "100%", left: 0, right: 0, zIndex: 20,
+                background: COLORS.surface, borderRadius: 10, marginTop: 4, maxHeight: 160, overflowY: "auto",
+                boxShadow: "0 4px 20px rgba(0,0,0,0.4)",
+              }}>
+                {clientesFiltrados.length === 0
+                  ? <div style={{ color: COLORS.muted, padding: "12px 14px", fontSize: 13 }}>Sin resultados</div>
+                  : clientesFiltrados.map(c => (
+                    <div key={c.id} onClick={() => { setForm({ ...form, client: c.name }); setClientSearch(c.name); setShowList(false); }}
+                      style={{ padding: "10px 14px", cursor: "pointer", borderBottom: `1px solid ${COLORS.surfaceHigh}` }}
+                      onMouseEnter={e => e.currentTarget.style.background = COLORS.surfaceHigh}
+                      onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                    >
+                      <div style={{ color: COLORS.text, fontSize: 13, fontWeight: 600 }}>{c.name}</div>
+                      {c.direccion && <div style={{ color: COLORS.muted, fontSize: 11 }}>📍 {c.direccion}</div>}
+                    </div>
+                  ))
+                }
+              </div>
+            )}
+          </div>
+
+          <Select value={form.marca} onChange={e => setForm({ ...form, marca: e.target.value })}>
+            <option value="">Seleccionar marca del envase…</option>
+            {products.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+          </Select>
+          <div style={{ display: "flex", gap: 8 }}>
+            <Input placeholder="Cantidad" type="number" value={form.qty} onChange={e => setForm({ ...form, qty: e.target.value })} />
+            <input type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })}
+              style={{
+                background: COLORS.surfaceHigh, border: "none", borderRadius: 10,
+                color: COLORS.text, padding: "10px 14px", fontSize: 14,
+                flex: 1, outline: "none", boxSizing: "border-box",
+              }}
+            />
+          </div>
+          <textarea
+            placeholder="Notas (motivo del préstamo, dónde dejarlo, etc.)"
+            value={form.notas}
+            onChange={e => setForm({ ...form, notas: e.target.value })}
+            style={{
+              background: COLORS.surfaceHigh, border: "none", borderRadius: 10,
+              color: COLORS.text, padding: "10px 14px", fontSize: 13,
+              width: "100%", minHeight: 60, outline: "none", boxSizing: "border-box",
+              resize: "vertical", lineHeight: 1.5, fontFamily: "system-ui",
+            }}
+          />
+          <Btn onClick={save}>Registrar Préstamo</Btn>
+        </FormBox>
+      )}
+
+      {envases.length === 0 && !adding && (
+        <div style={{ color: COLORS.muted, fontSize: 13, textAlign: "center", marginTop: 20 }}>
+          No hay envases prestados pendientes 🎉
+        </div>
+      )}
+
+      {[...envases].reverse().map(e => (
+        <div key={e.id} style={{
+          background: COLORS.surface, borderRadius: 12, padding: "12px 14px", marginBottom: 8,
+          borderLeft: `3px solid ${COLORS.amber}`,
+        }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+            <div>
+              <div style={{ color: COLORS.text, fontSize: 14, fontWeight: 700 }}>{e.client}</div>
+              <div style={{ marginTop: 4 }}><MarcaDot marca={e.marca} /></div>
+              <div style={{ color: COLORS.muted, fontSize: 11, marginTop: 4 }}>📅 {e.date}</div>
+              {e.notas && <div style={{ color: COLORS.amber, fontSize: 11, marginTop: 3 }}>📝 {e.notas}</div>}
+            </div>
+            <div style={{ textAlign: "right" }}>
+              <div style={{ color: COLORS.amber, fontWeight: 800, fontSize: 22 }}>{e.qty}</div>
+              <div style={{ color: COLORS.muted, fontSize: 10 }}>envase(s)</div>
+            </div>
+          </div>
+          <div style={{ marginTop: 10 }}>
+            <Btn small color={COLORS.accent} onClick={() => recoger(e.id)}>✓ Recogido</Btn>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ─── Nav ──────────────────────────────────────────────────────────────────────
 const icons = {
   dashboard: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>,
   inventory: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/></svg>,
   sales: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>,
   clients: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>,
+  envases: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M8 3h8l2 4v12a1 1 0 01-1 1H7a1 1 0 01-1-1V7L8 3z"/><line x1="6" y1="7" x2="18" y2="7"/></svg>,
   importer: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>,
 };
 
@@ -1075,6 +1255,7 @@ const tabs = [
   { id: "sales",     label: "Ventas" },
   { id: "inventory", label: "Stock" },
   { id: "clients",   label: "Clientes" },
+  { id: "envases",   label: "Envases" },
   { id: "importer",  label: "Telegram" },
 ];
 
@@ -1140,6 +1321,7 @@ export default function App() {
   const [products, setProducts] = useState(initialProducts);
   const [clients,  setClients]  = useState(initialClients);
   const [sales,    setSales]    = useState(initialSales);
+  const [envases,  setEnvases]  = useState([]);
 
   if (!loggedIn) return <LoginScreen onLogin={() => setLoggedIn(true)} />;
 
@@ -1148,6 +1330,7 @@ export default function App() {
     inventory:  <Inventory products={products} setProducts={setProducts} sales={sales} />,
     sales:      <Sales sales={sales} setSales={setSales} products={products} setProducts={setProducts} clients={clients} />,
     clients:    <Clients clients={clients} setClients={setClients} sales={sales} />,
+    envases:    <Envases envases={envases} setEnvases={setEnvases} clients={clients} products={products} setProducts={setProducts} />,
     importer:   <Importer products={products} setProducts={setProducts} clients={clients} setClients={setClients} setSales={setSales} />,
   };
 
