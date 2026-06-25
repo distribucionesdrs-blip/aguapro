@@ -1,46 +1,4 @@
 import { useState, useEffect } from "react";
-import { initializeApp } from "firebase/app";
-import { getDatabase, ref, onValue, set } from "firebase/database";
-
-const firebaseConfig = {
-  apiKey: "AIzaSyAUSobqTwQpUVFvBRdc1mMqog-T_Q9dYUI",
-  authDomain: "agua-2026.firebaseapp.com",
-  databaseURL: "https://agua-2026-default-rtdb.firebaseio.com",
-  projectId: "agua-2026",
-  storageBucket: "agua-2026.firebasestorage.app",
-  messagingSenderId: "1086687268882",
-  appId: "1:1086687268882:web:170d78461c7d41f0c608cb",
-};
-
-const firebaseApp = initializeApp(firebaseConfig);
-const db = getDatabase(firebaseApp);
-
-function useFirebase(path, initial) {
-  const [data, setData] = useState(null);
-  const [ready, setReady] = useState(false);
-
-  useEffect(() => {
-    const r = ref(db, path);
-    const unsub = onValue(r, snap => {
-      const val = snap.val();
-      if (val !== null) {
-        setData(Array.isArray(val) ? val : Object.values(val));
-      } else {
-        set(r, initial);
-        setData(initial);
-      }
-      setReady(true);
-    });
-    return () => unsub();
-  }, [path]);
-
-  const update = (newData) => {
-    setData(newData);
-    set(ref(db, path), newData);
-  };
-
-  return [data, update, ready];
-}
 
 const COLORS = {
   bg: "#0F1D35",
@@ -125,9 +83,9 @@ const initialProducts = [
 ];
 
 const initialClients = [
-  { id: 1, name: "Restaurante El Buen Sabor", phone: "555-1001", tipo: "recurrente", direccion: "Av. Central 123" },
-  { id: 2, name: "Oficinas García & Asociados", phone: "555-2002", tipo: "recurrente", direccion: "Calle 5 Norte 88" },
-  { id: 3, name: "Juan Pérez", phone: "555-3003", tipo: "eventual", direccion: "Pasaje Los Olivos 4" },
+  { id: 1, name: "Restaurante El Buen Sabor", phone: "555-1001", direccion: "Av. Central 123" },
+  { id: 2, name: "Oficinas García & Asociados", phone: "555-2002", direccion: "Calle 5 Norte 88" },
+  { id: 3, name: "Juan Pérez", phone: "555-3003", direccion: "Pasaje Los Olivos 4" },
 ];
 
 const initialSales = [
@@ -323,7 +281,7 @@ function Dashboard({ sales, products }) {
 }
 
 // ─── Inventario ───────────────────────────────────────────────────────────────
-function Inventory({ products, setProducts }) {
+function Inventory({ products, setProducts, sales }) {
   const [editId, setEditId] = useState(null);
   const [editForm, setEditForm] = useState({});
   const [adding, setAdding] = useState(false);
@@ -350,16 +308,23 @@ function Inventory({ products, setProducts }) {
   const saveNew = () => {
     if (!newForm.name || !newForm.price) return;
     setProducts([...products, {
-      id: Date.now(),
-      name: newForm.name,
-      proveedor: newForm.proveedor,
-      price: +newForm.price,
-      stock: +newForm.stock || 0,
-      tipo: newForm.tipo,
+      id: Date.now(), name: newForm.name, proveedor: newForm.proveedor,
+      price: +newForm.price, stock: +newForm.stock || 0, tipo: newForm.tipo,
     }]);
     setNewForm({ name: "", proveedor: "", price: "", stock: "", tipo: "otro" });
     setAdding(false);
   };
+
+  // Calcular totales de bidones (Fresh, Vital, Spring — excluye San Luis y otros)
+  const BIDONES_MARCAS = ["Fresh", "Vital", "Spring"];
+  const totalBidones = products
+    .filter(p => BIDONES_MARCAS.includes(p.name))
+    .reduce((a, p) => a + p.stock, 0);
+
+  // Vacíos = total vendido de esas marcas (los que salieron y podrían volver)
+  const totalVendidos = sales
+    .filter(s => BIDONES_MARCAS.includes(s.marca))
+    .reduce((a, s) => a + s.qty, 0);
 
   return (
     <div>
@@ -368,13 +333,33 @@ function Inventory({ products, setProducts }) {
         <Btn small onClick={() => setAdding(!adding)}>{adding ? "Cancelar" : "+ Producto"}</Btn>
       </div>
 
+      {/* Resumen de envases */}
+      <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+        <div style={{
+          flex: 1, background: COLORS.surface, borderRadius: 14, padding: "14px 16px",
+          borderBottom: `3px solid ${COLORS.accent}`,
+        }}>
+          <div style={{ color: COLORS.muted, fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>Envases en stock</div>
+          <div style={{ color: COLORS.accent, fontSize: 28, fontWeight: 800, marginTop: 4 }}>{totalBidones}</div>
+          <div style={{ color: COLORS.muted, fontSize: 11 }}>Fresh + Vital + Spring</div>
+        </div>
+        <div style={{
+          flex: 1, background: COLORS.surface, borderRadius: 14, padding: "14px 16px",
+          borderBottom: `3px solid ${COLORS.amber}`,
+        }}>
+          <div style={{ color: COLORS.muted, fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>Envases vacíos</div>
+          <div style={{ color: COLORS.amber, fontSize: 28, fontWeight: 800, marginTop: 4 }}>{totalVendidos}</div>
+          <div style={{ color: COLORS.muted, fontSize: 11 }}>bidones despachados</div>
+        </div>
+      </div>
+
       {adding && (
         <FormBox>
           <div style={{ color: COLORS.accent, fontSize: 13, fontWeight: 700 }}>Nuevo producto</div>
           <Input placeholder="Nombre del producto" value={newForm.name} onChange={e => setNewForm({ ...newForm, name: e.target.value })} />
           <Input placeholder="Proveedor" value={newForm.proveedor} onChange={e => setNewForm({ ...newForm, proveedor: e.target.value })} />
           <div style={{ display: "flex", gap: 8 }}>
-            <Input placeholder="Precio $" type="number" value={newForm.price} onChange={e => setNewForm({ ...newForm, price: e.target.value })} />
+            <Input placeholder="Precio S/" type="number" value={newForm.price} onChange={e => setNewForm({ ...newForm, price: e.target.value })} />
             <Input placeholder="Stock inicial" type="number" value={newForm.stock} onChange={e => setNewForm({ ...newForm, stock: e.target.value })} />
           </div>
           <Select value={newForm.tipo} onChange={e => setNewForm({ ...newForm, tipo: e.target.value })}>
@@ -396,7 +381,7 @@ function Inventory({ products, setProducts }) {
               <Input placeholder="Nombre" value={editForm.name} onChange={e => setEditForm({ ...editForm, name: e.target.value })} />
               <Input placeholder="Proveedor" value={editForm.proveedor} onChange={e => setEditForm({ ...editForm, proveedor: e.target.value })} />
               <div style={{ display: "flex", gap: 8 }}>
-                <Input placeholder="Precio $" type="number" value={editForm.price} onChange={e => setEditForm({ ...editForm, price: e.target.value })} />
+                <Input placeholder="Precio S/" type="number" value={editForm.price} onChange={e => setEditForm({ ...editForm, price: e.target.value })} />
                 <Input placeholder="Stock" type="number" value={editForm.stock} onChange={e => setEditForm({ ...editForm, stock: e.target.value })} />
               </div>
               <div style={{ display: "flex", gap: 8 }}>
@@ -455,7 +440,7 @@ function Sales({ sales, setSales, products, setProducts, clients }) {
 
   const startEdit = (s) => {
     setEditId(s.id);
-    setEditForm({ client: s.client, marca: s.marca, qty: s.qty, customPrice: s.unitPrice ?? "", pago: s.pago || "" });
+    setEditForm({ client: s.client, marca: s.marca, qty: s.qty, customPrice: s.unitPrice ?? "", pago: s.pago || "", date: s.date || today() });
   };
 
   const saveEdit = (id) => {
@@ -466,7 +451,7 @@ function Sales({ sales, setSales, products, setProducts, clients }) {
     const total = unitPrice * +editForm.qty;
     adjustStock(orig.marca, +orig.qty);
     adjustStock(editForm.marca, -editForm.qty);
-    setSales(sales.map(s => s.id === id ? { ...s, client: editForm.client, marca: editForm.marca, qty: +editForm.qty, unitPrice, total, pago: editForm.pago } : s));
+    setSales(sales.map(s => s.id === id ? { ...s, client: editForm.client, marca: editForm.marca, qty: +editForm.qty, unitPrice, total, pago: editForm.pago, date: editForm.date || s.date } : s));
     setEditId(null);
   };
 
@@ -475,6 +460,16 @@ function Sales({ sales, setSales, products, setProducts, clients }) {
     if (sale) adjustStock(sale.marca, +sale.qty);
     setSales(sales.filter(s => s.id !== id));
   };
+
+  const [clientSearch, setClientSearch] = useState("");
+  const [showClientList, setShowClientList] = useState(false);
+
+  const clientesFiltrados = clientSearch.trim().length > 0
+    ? clients.filter(c =>
+        c.name.toLowerCase().includes(clientSearch.toLowerCase()) ||
+        (c.direccion || "").toLowerCase().includes(clientSearch.toLowerCase())
+      )
+    : clients;
 
   const selectedProd = products.find(p => p.name === form.marca);
   const newUnitPrice = form.customPrice !== "" ? +form.customPrice : selectedProd?.price || 0;
@@ -486,15 +481,59 @@ function Sales({ sales, setSales, products, setProducts, clients }) {
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <SectionTitle>Ventas</SectionTitle>
-        <Btn small onClick={() => setAdding(!adding)}>{adding ? "Cancelar" : "+ Venta"}</Btn>
+        <Btn small onClick={() => { setAdding(!adding); setClientSearch(""); setShowClientList(false); }}>{adding ? "Cancelar" : "+ Venta"}</Btn>
       </div>
 
       {adding && (
         <FormBox>
-          <Select value={form.client} onChange={e => setForm({ ...form, client: e.target.value })}>
-            <option value="">Seleccionar cliente…</option>
-            {clients.map(c => <option key={c.id}>{c.name}</option>)}
-          </Select>
+          {/* Búsqueda de cliente */}
+          <div style={{ position: "relative" }}>
+            <input
+              placeholder="🔍 Buscar cliente por nombre o dirección…"
+              value={clientSearch}
+              onChange={e => { setClientSearch(e.target.value); setShowClientList(true); }}
+              onFocus={() => setShowClientList(true)}
+              style={{
+                background: COLORS.surfaceHigh, border: `2px solid ${form.client ? COLORS.accent : "transparent"}`,
+                borderRadius: 10, color: COLORS.text, padding: "10px 14px",
+                fontSize: 14, width: "100%", outline: "none", boxSizing: "border-box",
+              }}
+            />
+            {form.client && (
+              <div style={{ color: COLORS.accent, fontSize: 11, fontWeight: 600, marginTop: 4 }}>
+                ✓ {form.client}
+                <button onClick={() => { setForm({ ...form, client: "" }); setClientSearch(""); }} style={{
+                  background: "none", border: "none", color: COLORS.muted, cursor: "pointer", marginLeft: 8, fontSize: 12,
+                }}>✕ Cambiar</button>
+              </div>
+            )}
+            {showClientList && clientSearch.trim().length > 0 && !form.client && (
+              <div style={{
+                position: "absolute", top: "100%", left: 0, right: 0, zIndex: 20,
+                background: COLORS.surface, borderRadius: 10, marginTop: 4,
+                maxHeight: 200, overflowY: "auto",
+                boxShadow: "0 4px 20px rgba(0,0,0,0.4)",
+              }}>
+                {clientesFiltrados.length === 0 ? (
+                  <div style={{ color: COLORS.muted, padding: "12px 14px", fontSize: 13 }}>Sin resultados</div>
+                ) : clientesFiltrados.map(c => (
+                  <div key={c.id} onClick={() => {
+                    setForm({ ...form, client: c.name });
+                    setClientSearch(c.name);
+                    setShowClientList(false);
+                  }} style={{
+                    padding: "10px 14px", cursor: "pointer", borderBottom: `1px solid ${COLORS.surfaceHigh}`,
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.background = COLORS.surfaceHigh}
+                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                  >
+                    <div style={{ color: COLORS.text, fontSize: 13, fontWeight: 600 }}>{c.name}</div>
+                    {c.direccion && <div style={{ color: COLORS.muted, fontSize: 11 }}>📍 {c.direccion}</div>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
           <Select value={form.marca} onChange={e => setForm({ ...form, marca: e.target.value, customPrice: "" })}>
             <option value="">Seleccionar producto…</option>
             {products.map(p => (
@@ -557,6 +596,19 @@ function Sales({ sales, setSales, products, setProducts, clients }) {
                   onChange={e => setEditForm({ ...editForm, customPrice: e.target.value })}
                 />
               </div>
+              <div>
+                <div style={{ color: COLORS.muted, fontSize: 11, marginBottom: 4 }}>Fecha de la venta</div>
+                <input
+                  type="date"
+                  value={editForm.date || ""}
+                  onChange={e => setEditForm({ ...editForm, date: e.target.value })}
+                  style={{
+                    background: COLORS.surfaceHigh, border: "none", borderRadius: 10,
+                    color: COLORS.text, padding: "10px 14px", fontSize: 14,
+                    width: "100%", outline: "none", boxSizing: "border-box",
+                  }}
+                />
+              </div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 {PAGOS.map(p => (
                   <button key={p} onClick={() => setEditForm({ ...editForm, pago: p })} style={{
@@ -613,19 +665,20 @@ function Sales({ sales, setSales, products, setProducts, clients }) {
 function Clients({ clients, setClients, sales }) {
   const [adding, setAdding] = useState(false);
   const [editId, setEditId] = useState(null);
-  const [form, setForm] = useState({ name: "", phone: "", tipo: "recurrente", direccion: "" });
+  const [form, setForm] = useState({ name: "", phone: "", direccion: "" });
   const [editForm, setEditForm] = useState({});
+  const [vista, setVista] = useState("todos"); // todos | deudores | proximos
 
   const save = () => {
     if (!form.name) return;
     setClients([...clients, { id: Date.now(), ...form }]);
-    setForm({ name: "", phone: "", tipo: "recurrente", direccion: "" });
+    setForm({ name: "", phone: "", direccion: "" });
     setAdding(false);
   };
 
   const startEdit = (c) => {
     setEditId(c.id);
-    setEditForm({ name: c.name, phone: c.phone, tipo: c.tipo, direccion: c.direccion });
+    setEditForm({ name: c.name, phone: c.phone, direccion: c.direccion });
   };
 
   const saveEdit = (id) => {
@@ -635,6 +688,43 @@ function Clients({ clients, setClients, sales }) {
 
   const deleteClient = (id) => setClients(clients.filter(c => c.id !== id));
 
+  // Deudores: clientes con ventas en Crédito
+  const deudores = clients.map(c => {
+    const ventasCredito = sales.filter(s => s.client === c.name && s.pago === "Crédito");
+    const deuda = ventasCredito.reduce((a, s) => a + s.total, 0);
+    return { ...c, deuda, ventasCredito };
+  }).filter(c => c.deuda > 0);
+
+  const totalDeuda = deudores.reduce((a, c) => a + c.deuda, 0);
+
+  // Próximos pedidos: basado en frecuencia de compras
+  const proximosPedidos = clients.map(c => {
+    const compras = sales
+      .filter(s => s.client === c.name)
+      .sort((a, b) => new Date(a.date) - new Date(b.date));
+    if (compras.length < 2) return null;
+
+    const fechas = compras.map(s => new Date(s.date));
+    const intervalos = [];
+    for (let i = 1; i < fechas.length; i++) {
+      intervalos.push((fechas[i] - fechas[i - 1]) / (1000 * 60 * 60 * 24));
+    }
+    const promedioInt = intervalos.reduce((a, b) => a + b, 0) / intervalos.length;
+    const ultimaCompra = fechas[fechas.length - 1];
+    const proximaFecha = new Date(ultimaCompra.getTime() + promedioInt * 24 * 60 * 60 * 1000);
+    const diasRestantes = Math.round((proximaFecha - new Date()) / (1000 * 60 * 60 * 24));
+    const marcaFav = compras.reduce((acc, s) => {
+      acc[s.marca] = (acc[s.marca] || 0) + s.qty; return acc;
+    }, {});
+    const marcaMasComprada = Object.entries(marcaFav).sort((a, b) => b[1] - a[1])[0]?.[0];
+
+    return { ...c, diasRestantes, proximaFecha: proximaFecha.toISOString().slice(0, 10), marcaMasComprada, totalCompras: compras.length };
+  }).filter(Boolean).sort((a, b) => a.diasRestantes - b.diasRestantes);
+
+  const clientesFiltrados = vista === "deudores" ? deudores
+    : vista === "proximos" ? proximosPedidos
+    : clients;
+
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -642,21 +732,102 @@ function Clients({ clients, setClients, sales }) {
         <Btn small onClick={() => setAdding(!adding)}>{adding ? "Cancelar" : "+ Cliente"}</Btn>
       </div>
 
+      {/* Tabs de vista */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+        {[["todos", "Todos"], ["deudores", "Deudores"], ["proximos", "Próximos pedidos"]].map(([v, l]) => (
+          <button key={v} onClick={() => setVista(v)} style={{
+            flex: 1, padding: "7px 4px", borderRadius: 10, border: "none", fontSize: 11, fontWeight: 700,
+            background: vista === v ? COLORS.accent : COLORS.surfaceHigh,
+            color: vista === v ? "#0F1D35" : COLORS.muted, cursor: "pointer",
+          }}>{l}</button>
+        ))}
+      </div>
+
+      {/* Total deuda */}
+      {vista === "deudores" && (
+        <div style={{
+          background: COLORS.surface, borderRadius: 14, padding: "14px 16px", marginBottom: 14,
+          borderBottom: `3px solid ${COLORS.danger}`,
+        }}>
+          <div style={{ color: COLORS.muted, fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>Total deuda pendiente</div>
+          <div style={{ color: COLORS.danger, fontSize: 26, fontWeight: 800, marginTop: 4 }}>{fmt(totalDeuda)}</div>
+          <div style={{ color: COLORS.muted, fontSize: 11 }}>{deudores.length} cliente(s) con crédito pendiente</div>
+        </div>
+      )}
+
       {adding && (
         <FormBox>
           <div style={{ color: COLORS.accent, fontSize: 13, fontWeight: 700 }}>Nuevo cliente</div>
           <Input placeholder="Nombre / Empresa" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
           <Input placeholder="Teléfono" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} />
           <Input placeholder="Dirección de entrega" value={form.direccion} onChange={e => setForm({ ...form, direccion: e.target.value })} />
-          <Select value={form.tipo} onChange={e => setForm({ ...form, tipo: e.target.value })}>
-            <option value="recurrente">Recurrente</option>
-            <option value="eventual">Eventual</option>
-          </Select>
           <Btn onClick={save}>Guardar Cliente</Btn>
         </FormBox>
       )}
 
-      {clients.map(c => {
+      {vista === "proximos" && proximosPedidos.length === 0 && (
+        <div style={{ color: COLORS.muted, fontSize: 13, textAlign: "center", marginTop: 20 }}>
+          Se necesitan al menos 2 compras por cliente para calcular próximos pedidos.
+        </div>
+      )}
+
+      {vista === "proximos" ? proximosPedidos.map(c => (
+        <div key={c.id} style={{
+          background: COLORS.surface, borderRadius: 12, padding: "14px 16px", marginBottom: 8,
+          borderLeft: `3px solid ${c.diasRestantes <= 0 ? COLORS.danger : c.diasRestantes <= 3 ? COLORS.amber : COLORS.accent}`,
+        }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+            <div>
+              <div style={{ color: COLORS.text, fontSize: 14, fontWeight: 700 }}>{c.name}</div>
+              <div style={{ color: COLORS.muted, fontSize: 11 }}>📍 {c.direccion}</div>
+              <div style={{ color: COLORS.muted, fontSize: 11, marginTop: 4 }}>
+                Marca frecuente: <MarcaDot marca={c.marcaMasComprada} />
+              </div>
+              <div style={{ color: COLORS.muted, fontSize: 11, marginTop: 4 }}>
+                Próximo pedido estimado: <span style={{ color: COLORS.text, fontWeight: 600 }}>{c.proximaFecha}</span>
+              </div>
+            </div>
+            <div style={{ textAlign: "right" }}>
+              <div style={{
+                color: c.diasRestantes <= 0 ? COLORS.danger : c.diasRestantes <= 3 ? COLORS.amber : COLORS.accent,
+                fontWeight: 800, fontSize: 20,
+              }}>
+                {c.diasRestantes <= 0 ? "¡Hoy!" : `${c.diasRestantes}d`}
+              </div>
+              <div style={{ color: COLORS.muted, fontSize: 10 }}>{c.diasRestantes <= 0 ? "puede pedir" : "para pedir"}</div>
+            </div>
+          </div>
+        </div>
+      )) : vista === "deudores" ? deudores.map(c => (
+        <div key={c.id} style={{
+          background: COLORS.surface, borderRadius: 12, padding: "14px 16px", marginBottom: 8,
+          borderLeft: `3px solid ${COLORS.danger}`,
+        }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+            <div>
+              <div style={{ color: COLORS.text, fontSize: 14, fontWeight: 700 }}>{c.name}</div>
+              <div style={{ color: COLORS.muted, fontSize: 11 }}>📞 {c.phone}</div>
+            </div>
+            <div style={{ color: COLORS.danger, fontWeight: 800, fontSize: 18 }}>{fmt(c.deuda)}</div>
+          </div>
+          <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+            {c.ventasCredito.map((v, i) => (
+              <div key={i} style={{
+                background: COLORS.surfaceHigh, borderRadius: 8, padding: "8px 12px",
+                display: "flex", justifyContent: "space-between", alignItems: "center",
+              }}>
+                <div>
+                  <MarcaDot marca={v.marca} />
+                  <div style={{ color: COLORS.muted, fontSize: 11, marginTop: 3 }}>
+                    ×{v.qty} uds. · {v.date}
+                  </div>
+                </div>
+                <span style={{ color: COLORS.danger, fontWeight: 700, fontSize: 13 }}>{fmt(v.total)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )) : clients.map(c => {
         const compras = sales.filter(s => s.client === c.name);
         const totalComprado = compras.reduce((a, s) => a + s.total, 0);
         const unidades = compras.reduce((a, s) => a + s.qty, 0);
@@ -668,10 +839,6 @@ function Clients({ clients, setClients, sales }) {
                 <Input placeholder="Nombre / Empresa" value={editForm.name} onChange={e => setEditForm({ ...editForm, name: e.target.value })} />
                 <Input placeholder="Teléfono" value={editForm.phone} onChange={e => setEditForm({ ...editForm, phone: e.target.value })} />
                 <Input placeholder="Dirección" value={editForm.direccion} onChange={e => setEditForm({ ...editForm, direccion: e.target.value })} />
-                <Select value={editForm.tipo} onChange={e => setEditForm({ ...editForm, tipo: e.target.value })}>
-                  <option value="recurrente">Recurrente</option>
-                  <option value="eventual">Eventual</option>
-                </Select>
                 <div style={{ display: "flex", gap: 8 }}>
                   <Btn small onClick={() => saveEdit(c.id)}>Guardar</Btn>
                   <Btn small color={COLORS.surfaceHigh} onClick={() => setEditId(null)}>Cancelar</Btn>
@@ -685,7 +852,6 @@ function Clients({ clients, setClients, sales }) {
                     <div style={{ color: COLORS.muted, fontSize: 11 }}>📞 {c.phone}</div>
                     <div style={{ color: COLORS.muted, fontSize: 11 }}>📍 {c.direccion}</div>
                   </div>
-                  <Badge color={c.tipo === "recurrente" ? COLORS.accent : COLORS.amber}>{c.tipo}</Badge>
                 </div>
                 {unidades > 0 && (
                   <div style={{ marginTop: 8, display: "flex", gap: 12 }}>
@@ -737,7 +903,7 @@ function Importer({ products, setProducts, clients, setClients, setSales }) {
       // Add client if not exists
       const exists = clients.find(c => c.name.toUpperCase() === order.clientName.toUpperCase());
       if (!exists) {
-        newClients.push({ id: Date.now() + Math.random(), name: order.clientName, phone: "", tipo: "recurrente", direccion: order.direccion });
+        newClients.push({ id: Date.now() + Math.random(), name: order.clientName, phone: "", direccion: order.direccion });
       }
       // Add sale
       newSales.push({
@@ -971,28 +1137,15 @@ function LoginScreen({ onLogin }) {
 export default function App() {
   const [loggedIn, setLoggedIn] = useState(false);
   const [tab, setTab] = useState("dashboard");
-  const [products, setProducts, prodReady] = useFirebase("products", initialProducts);
-  const [clients,  setClients,  cliReady]  = useFirebase("clients",  initialClients);
-  const [sales,    setSales,    salesReady] = useFirebase("sales",    initialSales);
+  const [products, setProducts] = useState(initialProducts);
+  const [clients,  setClients]  = useState(initialClients);
+  const [sales,    setSales]    = useState(initialSales);
 
   if (!loggedIn) return <LoginScreen onLogin={() => setLoggedIn(true)} />;
 
-  const allReady = prodReady && cliReady && salesReady;
-  if (!allReady) return (
-    <div style={{
-      background: COLORS.bg, minHeight: "100vh", display: "flex",
-      flexDirection: "column", alignItems: "center", justifyContent: "center",
-      fontFamily: "system-ui", gap: 16,
-    }}>
-      <div style={{ fontSize: 40 }}>💧</div>
-      <div style={{ color: COLORS.accent, fontWeight: 700 }}>Cargando AguaPro...</div>
-      <div style={{ color: COLORS.muted, fontSize: 13 }}>Conectando con la nube...</div>
-    </div>
-  );
-
   const screens = {
     dashboard: <Dashboard sales={sales} products={products} />,
-    inventory:  <Inventory products={products} setProducts={setProducts} />,
+    inventory:  <Inventory products={products} setProducts={setProducts} sales={sales} />,
     sales:      <Sales sales={sales} setSales={setSales} products={products} setProducts={setProducts} clients={clients} />,
     clients:    <Clients clients={clients} setClients={setClients} sales={sales} />,
     importer:   <Importer products={products} setProducts={setProducts} clients={clients} setClients={setClients} setSales={setSales} />,
