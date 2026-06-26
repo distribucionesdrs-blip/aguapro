@@ -23,7 +23,11 @@ function useFirebase(path, initial) {
     const unsub = onValue(r, snap => {
       const val = snap.val();
       if (val !== null) {
-        setData(Array.isArray(val) ? val : Object.values(val));
+        // Preserve id field from key if missing
+        const arr = Array.isArray(val)
+          ? val.filter(Boolean)
+          : Object.entries(val).map(([k, v]) => ({ ...v, id: v.id ?? k }));
+        setData(arr);
       } else {
         set(r, initial);
         setData(initial);
@@ -33,8 +37,11 @@ function useFirebase(path, initial) {
     return () => unsub();
   }, [path]);
   const update = (newData) => {
+    // Store as object keyed by id for Firebase reliability
+    const obj = {};
+    newData.forEach(item => { obj[item.id] = item; });
     setData(newData);
-    set(ref(db, path), newData);
+    set(ref(db, path), obj);
   };
   return [data, update, ready];
 }
@@ -72,46 +79,51 @@ const PAGOS = ["Yape", "Plin", "Transferencia", "Crédito", "Efectivo"];
 const PAGO_MAP = { Y: "Yape", P: "Plin", T: "Transferencia", C: "Crédito", E: "Efectivo" };
 
 // ─── Telegram JSON parser ─────────────────────────────────────────────────────
-function parseTelegramJSON(jsonText, knownProducts) {
+function parseTelegramClients(jsonText) {
   let data;
-  try { data = JSON.parse(jsonText); } catch { return { orders: [], errors: ["JSON inválido"] }; }
+  try { data = JSON.parse(jsonText); } catch { return { clientes: [], errors: ["JSON inválido — verifica que copiaste el archivo completo."] }; }
 
-  const messages = data.messages || [];
-  const orders = [];
+  const messages = data.messages || data.chats?.list?.flatMap(c => c.messages || []) || [];
+  const clientes = [];
   const errors = [];
+  const vistos = new Set();
 
-  messages.forEach((msg, idx) => {
+  messages.forEach((msg) => {
+    // Extraer texto del mensaje (puede ser string o array de partes)
     const raw = typeof msg.text === "string" ? msg.text
-      : Array.isArray(msg.text) ? msg.text.map(t => typeof t === "string" ? t : t.text || "").join("") : "";
+      : Array.isArray(msg.text) ? msg.text.map(t => typeof t === "string" ? t : (t.text || "")).join("") : "";
     if (!raw.trim()) return;
 
     const lines = raw.trim().split("\n").map(l => l.trim()).filter(Boolean);
-    if (lines.length < 5) return;
+    if (lines.length < 2) return;
 
-    const line0 = lines[0].toUpperCase();
-    const m0 = line0.match(/^(\d+)\s+([A-Z\s]+?)\s+(\d+(?:\.\d+)?)\s*(?:SOLES?|S\/)?/);
-    if (!m0) return;
+    // Detectar línea de cantidad+marca (ej: "2 FRESH 14 SOLES" o "2 FRESH")
+    const lineaPedido = lines.find(l => /^\d+\s+\w/i.test(l));
+    if (!lineaPedido) return;
+    const idx = lines.indexOf(lineaPedido);
 
-    const qty = parseInt(m0[1]);
-    const marcaRaw = m0[2].trim();
-    const price = parseFloat(m0[3]);
+    // Nombre: línea siguiente al pedido
+    const nombre = lines[idx + 1] || "";
+    if (!nombre || nombre.length < 2) return;
 
-    const prod = knownProducts.find(p =>
-      p.name.toUpperCase() === marcaRaw || marcaRaw.includes(p.name.toUpperCase())
-    );
-    if (!prod) { errors.push(`Msg ${idx + 1}: marca "${marcaRaw}" no reconocida`); return; }
+    // Dirección: combina las siguientes 1-2 líneas que no sean iniciales de pago/vendedor
+    const INICIALES_PAGO = new Set(["Y", "P", "T", "C", "E"]);
+    const dirLines = [];
+    for (let i = idx + 2; i < Math.min(idx + 5, lines.length); i++) {
+      const l = lines[i];
+      if (INICIALES_PAGO.has(l.toUpperCase()) || l.length === 1) break;
+      dirLines.push(l);
+    }
+    const direccion = dirLines.join(", ");
 
-    const clientName = lines[1] || "Desconocido";
-    const direccion = [lines[2], lines[3]].filter(Boolean).join(", ");
-    const pagoInit = lines[4] ? lines[4].toUpperCase().charAt(0) : "";
-    const pago = PAGO_MAP[pagoInit] || "Efectivo";
-    const vendedor = lines[5] ? lines[5].toUpperCase().charAt(0) : "";
-    const date = msg.date ? msg.date.slice(0, 10) : new Date().toISOString().slice(0, 10);
-
-    orders.push({ clientName, direccion, marca: prod.name, qty, unitPrice: price, total: price * qty, pago, vendedor, date });
+    const key = nombre.toUpperCase().trim();
+    if (vistos.has(key)) return;
+    vistos.add(key);
+    clientes.push({ nombre: nombre.trim(), direccion: direccion.trim() });
   });
 
-  return { orders, errors };
+  if (clientes.length === 0) errors.push("No se encontraron mensajes con el formato esperado. Asegúrate de que los mensajes sigan el formato: cantidad+marca, nombre, dirección.");
+  return { clientes, errors };
 }
 
 const initialProducts = [
@@ -1048,55 +1060,35 @@ function Clients({ clients, setClients, sales }) {
 
 
 // ─── Importador Telegram ──────────────────────────────────────────────────────
-function Importer({ products, setProducts, clients, setClients, setSales }) {
-  const [status, setStatus] = useState("idle"); // idle | preview | done | error
+function Importer({ clients, setClients }) {
+  const [status, setStatus] = useState("idle");
   const [preview, setPreview] = useState([]);
   const [errors, setErrors] = useState([]);
   const [jsonText, setJsonText] = useState("");
+
+  const procesar = (text) => {
+    const { clientes, errors } = parseTelegramClients(text);
+    setPreview(clientes);
+    setErrors(errors);
+    setStatus(clientes.length > 0 ? "preview" : "error");
+  };
 
   const handleFile = (e) => {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (ev) => {
-      const text = ev.target.result;
-      setJsonText(text);
-      const { orders, errors } = parseTelegramJSON(text, products);
-      setPreview(orders);
-      setErrors(errors);
-      setStatus(orders.length > 0 ? "preview" : "error");
-    };
+    reader.onload = (ev) => { setJsonText(ev.target.result); procesar(ev.target.result); };
     reader.readAsText(file);
   };
 
   const handleImport = () => {
-    const newClients = [];
-    const newSales = [];
-
-    preview.forEach(order => {
-      // Add client if not exists
-      const exists = clients.find(c => c.name.toUpperCase() === order.clientName.toUpperCase());
-      if (!exists) {
-        newClients.push({ id: Date.now() + Math.random(), name: order.clientName, phone: "", direccion: order.direccion });
-      }
-      // Add sale
-      newSales.push({
-        id: Date.now() + Math.random(),
-        client: order.clientName,
-        marca: order.marca,
-        qty: order.qty,
-        unitPrice: order.unitPrice,
-        total: order.total,
-        pago: order.pago,
-        vendedor: order.vendedor,
-        date: order.date,
-      });
-      // Adjust stock
-      setProducts(prev => prev.map(p => p.name === order.marca ? { ...p, stock: Math.max(0, p.stock - order.qty) } : p));
-    });
-
-    if (newClients.length > 0) setClients(prev => [...prev, ...newClients]);
-    setSales(prev => [...prev, ...newSales]);
+    const nuevos = preview.filter(p =>
+      !clients.find(c => c.name.toUpperCase() === p.nombre.toUpperCase())
+    ).map(p => ({
+      id: Date.now() + Math.random(),
+      name: p.nombre, phone: "", direccion: p.direccion, notas: "",
+    }));
+    if (nuevos.length > 0) setClients(prev => [...prev, ...nuevos]);
     setStatus("done");
     setPreview([]);
   };
@@ -1105,44 +1097,33 @@ function Importer({ products, setProducts, clients, setClients, setSales }) {
 
   return (
     <div>
-      <SectionTitle>Importar desde Telegram</SectionTitle>
+      <SectionTitle>Importar clientes desde Telegram</SectionTitle>
       <div style={{ color: COLORS.muted, fontSize: 12, marginBottom: 16, lineHeight: 1.6 }}>
-        Exporta tu chat de Telegram en formato JSON y súbelo aquí. Los pedidos se importarán automáticamente como ventas y clientes.
+        Exporta tu chat de Telegram en formato JSON. La app extraerá nombres y direcciones de clientes para que puedas registrar ventas sin ingresarlos manualmente.
       </div>
 
       {status === "idle" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <div style={{
-            background: COLORS.surface, borderRadius: 14, padding: 16,
-            display: "flex", flexDirection: "column", gap: 10,
-          }}>
+          <div style={{ background: COLORS.surface, borderRadius: 14, padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
             <div style={{ color: COLORS.text, fontWeight: 700, fontSize: 14 }}>📋 Pega el contenido JSON</div>
             <div style={{ color: COLORS.muted, fontSize: 12, lineHeight: 1.6 }}>
-              1. Abre el archivo JSON exportado de Telegram con cualquier app de texto en tu celular{"\n"}
-              2. Selecciona todo el texto (mantén presionado → Seleccionar todo){"\n"}
-              3. Cópialo y pégalo aquí abajo
+              1. Abre el archivo JSON exportado de Telegram{"\n"}
+              2. Selecciona todo → Copia{"\n"}
+              3. Pégalo aquí abajo
             </div>
             <textarea
               value={jsonText}
               onChange={e => setJsonText(e.target.value)}
-              placeholder='Pega aquí el contenido del archivo JSON de Telegram...'
+              placeholder="Pega aquí el contenido del archivo JSON de Telegram..."
               style={{
                 background: COLORS.surfaceHigh, border: "none", borderRadius: 10,
                 color: COLORS.text, padding: "12px 14px", fontSize: 13,
                 width: "100%", minHeight: 140, outline: "none",
-                boxSizing: "border-box", resize: "vertical", lineHeight: 1.5,
-                fontFamily: "monospace",
+                boxSizing: "border-box", resize: "vertical", lineHeight: 1.5, fontFamily: "monospace",
               }}
             />
-            <Btn onClick={() => {
-              if (!jsonText.trim()) return;
-              const { orders, errors } = parseTelegramJSON(jsonText, products);
-              setPreview(orders);
-              setErrors(errors);
-              setStatus(orders.length > 0 ? "preview" : "error");
-            }}>Procesar pedidos</Btn>
+            <Btn onClick={() => { if (!jsonText.trim()) return; procesar(jsonText); }}>Procesar clientes</Btn>
           </div>
-
           <div style={{
             background: COLORS.surface, borderRadius: 14, padding: 16,
             border: `2px dashed ${COLORS.surfaceHigh}`,
@@ -1166,45 +1147,34 @@ function Importer({ products, setProducts, clients, setClients, setSales }) {
             background: COLORS.surface, borderRadius: 12, padding: "12px 16px",
             marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center",
           }}>
-            <span style={{ color: COLORS.accent, fontWeight: 700 }}>{preview.length} pedidos encontrados</span>
+            <span style={{ color: COLORS.accent, fontWeight: 700 }}>{preview.length} clientes encontrados</span>
             <Btn small color={COLORS.surfaceHigh} onClick={reset}>Cancelar</Btn>
           </div>
-
           {errors.length > 0 && (
             <div style={{ background: COLORS.danger + "22", borderRadius: 10, padding: 12, marginBottom: 12 }}>
-              <div style={{ color: COLORS.danger, fontSize: 12, fontWeight: 700, marginBottom: 4 }}>⚠️ {errors.length} mensaje(s) no reconocidos</div>
+              <div style={{ color: COLORS.danger, fontSize: 12, fontWeight: 700, marginBottom: 4 }}>⚠️ Avisos</div>
               {errors.map((e, i) => <div key={i} style={{ color: COLORS.muted, fontSize: 11 }}>{e}</div>)}
             </div>
           )}
-
           <div style={{ marginBottom: 12 }}>
-            {preview.map((o, i) => (
-              <div key={i} style={{
-                background: COLORS.surface, borderRadius: 12, padding: "12px 14px",
-                marginBottom: 8, borderLeft: `3px solid ${getBrandColor(o.marca)}`,
-              }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                  <div>
-                    <MarcaDot marca={o.marca} />
-                    <div style={{ color: COLORS.text, fontSize: 13, fontWeight: 600, marginTop: 4 }}>{o.clientName}</div>
-                    <div style={{ color: COLORS.muted, fontSize: 11 }}>📍 {o.direccion}</div>
-                    <div style={{ color: COLORS.muted, fontSize: 11 }}>×{o.qty} · {fmt(o.unitPrice)}/u · {o.date}</div>
-                    <div style={{ marginTop: 4, display: "flex", gap: 6 }}>
-                      <span style={{
-                        background: (PAGO_COLORS[o.pago] || COLORS.muted) + "22",
-                        color: PAGO_COLORS[o.pago] || COLORS.muted,
-                        borderRadius: 99, padding: "2px 8px", fontSize: 11, fontWeight: 700,
-                      }}>{o.pago}</span>
-                      {o.vendedor && <span style={{ color: COLORS.muted, fontSize: 11 }}>Vendedor: {o.vendedor}</span>}
-                    </div>
-                  </div>
-                  <span style={{ color: COLORS.accent, fontWeight: 700 }}>{fmt(o.total)}</span>
+            {preview.map((p, i) => {
+              const existe = clients.find(c => c.name.toUpperCase() === p.nombre.toUpperCase());
+              return (
+                <div key={i} style={{
+                  background: COLORS.surface, borderRadius: 12, padding: "12px 14px", marginBottom: 8,
+                  borderLeft: `3px solid ${existe ? COLORS.muted : COLORS.accent}`,
+                  opacity: existe ? 0.5 : 1,
+                }}>
+                  <div style={{ color: COLORS.text, fontSize: 13, fontWeight: 600 }}>{p.nombre}</div>
+                  <div style={{ color: COLORS.muted, fontSize: 11 }}>📍 {p.direccion}</div>
+                  {existe && <div style={{ color: COLORS.muted, fontSize: 11, marginTop: 4 }}>Ya registrado — se omitirá</div>}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
-
-          <Btn onClick={handleImport}>✅ Importar {preview.length} pedidos</Btn>
+          <Btn onClick={handleImport}>
+            ✅ Importar {preview.filter(p => !clients.find(c => c.name.toUpperCase() === p.nombre.toUpperCase())).length} clientes nuevos
+          </Btn>
         </div>
       )}
 
@@ -1214,8 +1184,8 @@ function Importer({ products, setProducts, clients, setClients, setSales }) {
           display: "flex", flexDirection: "column", alignItems: "center", gap: 14, textAlign: "center",
         }}>
           <div style={{ fontSize: 48 }}>✅</div>
-          <div style={{ color: COLORS.text, fontWeight: 700, fontSize: 16 }}>¡Importación exitosa!</div>
-          <div style={{ color: COLORS.muted, fontSize: 13 }}>Los pedidos y clientes fueron registrados correctamente.</div>
+          <div style={{ color: COLORS.text, fontWeight: 700, fontSize: 16 }}>¡Clientes importados!</div>
+          <div style={{ color: COLORS.muted, fontSize: 13 }}>Ya puedes registrar ventas sin ingresar los clientes manualmente.</div>
           <Btn onClick={reset}>Importar otro archivo</Btn>
         </div>
       )}
@@ -1226,9 +1196,9 @@ function Importer({ products, setProducts, clients, setClients, setSales }) {
           display: "flex", flexDirection: "column", alignItems: "center", gap: 14, textAlign: "center",
         }}>
           <div style={{ fontSize: 48 }}>⚠️</div>
-          <div style={{ color: COLORS.danger, fontWeight: 700 }}>No se encontraron pedidos válidos</div>
+          <div style={{ color: COLORS.danger, fontWeight: 700 }}>No se encontraron clientes</div>
           {errors.map((e, i) => <div key={i} style={{ color: COLORS.muted, fontSize: 12 }}>{e}</div>)}
-          <Btn onClick={reset} color={COLORS.surfaceHigh}>Intentar de nuevo</Btn>
+          <div style={{ marginTop: 8 }}><Btn onClick={reset}>Intentar de nuevo</Btn></div>
         </div>
       )}
     </div>
@@ -1495,7 +1465,7 @@ export default function App() {
     sales:      <Sales sales={sales} setSales={setSales} products={products} setProducts={setProducts} clients={clients} />,
     clients:    <Clients clients={clients} setClients={setClients} sales={sales} />,
     envases:    <Envases envases={envases} setEnvases={setEnvases} clients={clients} products={products} setProducts={setProducts} />,
-    importer:   <Importer products={products} setProducts={setProducts} clients={clients} setClients={setClients} setSales={setSales} />,
+    importer:   <Importer clients={clients} setClients={setClients} />,
   };
 
   return (
