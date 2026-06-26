@@ -748,6 +748,7 @@ function Clients({ clients, setClients, sales }) {
   const [editForm, setEditForm] = useState({});
   const [vista, setVista] = useState("todos");
   const [busqueda, setBusqueda] = useState("");
+  const [orden, setOrden] = useState("asc");
 
   const save = () => {
     if (!form.name) return;
@@ -825,16 +826,25 @@ function Clients({ clients, setClients, sales }) {
 
       {/* Buscador — solo en vista Todos */}
       {vista === "todos" && (
-        <input
-          placeholder="🔍 Buscar por nombre, teléfono o dirección…"
-          value={busqueda}
-          onChange={e => setBusqueda(e.target.value)}
-          style={{
+        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+          <input
+            placeholder="🔍 Buscar por nombre, teléfono o dirección…"
+            value={busqueda}
+            onChange={e => setBusqueda(e.target.value)}
+            style={{
+              background: COLORS.surfaceHigh, border: "none", borderRadius: 10,
+              color: COLORS.text, padding: "10px 14px", fontSize: 13,
+              flex: 1, outline: "none", boxSizing: "border-box",
+            }}
+          />
+          <button onClick={() => setOrden(o => o === "asc" ? "desc" : "asc")} style={{
             background: COLORS.surfaceHigh, border: "none", borderRadius: 10,
-            color: COLORS.text, padding: "10px 14px", fontSize: 13,
-            width: "100%", outline: "none", boxSizing: "border-box", marginBottom: 12,
-          }}
-        />
+            color: COLORS.accent, fontWeight: 700, fontSize: 13, padding: "10px 14px",
+            cursor: "pointer", whiteSpace: "nowrap",
+          }}>
+            {orden === "asc" ? "A → Z" : "Z → A"}
+          </button>
+        </div>
       )}
 
       {/* Total deuda */}
@@ -937,6 +947,9 @@ function Clients({ clients, setClients, sales }) {
         c.name.toLowerCase().includes(busqueda.toLowerCase()) ||
         (c.phone || "").includes(busqueda) ||
         (c.direccion || "").toLowerCase().includes(busqueda.toLowerCase())
+      ).sort((a, b) => orden === "asc"
+        ? a.name.localeCompare(b.name, "es")
+        : b.name.localeCompare(a.name, "es")
       ).map(c => {
         const compras = sales.filter(s => s.client === c.name);
         const totalComprado = compras.reduce((a, s) => a + s.total, 0);
