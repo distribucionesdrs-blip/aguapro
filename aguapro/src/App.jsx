@@ -1,4 +1,43 @@
 import { useState, useEffect } from "react";
+import { initializeApp } from "firebase/app";
+import { getDatabase, ref, onValue, set } from "firebase/database";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAUSobqTwQpUVFvBRdc1mMqog-T_Q9dYUI",
+  authDomain: "agua-2026.firebaseapp.com",
+  databaseURL: "https://agua-2026-default-rtdb.firebaseio.com",
+  projectId: "agua-2026",
+  storageBucket: "agua-2026.firebasestorage.app",
+  messagingSenderId: "1086687268882",
+  appId: "1:1086687268882:web:170d78461c7d41f0c608cb",
+};
+
+const firebaseApp = initializeApp(firebaseConfig);
+const db = getDatabase(firebaseApp);
+
+function useFirebase(path, initial) {
+  const [data, setData] = useState(null);
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    const r = ref(db, path);
+    const unsub = onValue(r, snap => {
+      const val = snap.val();
+      if (val !== null) {
+        setData(Array.isArray(val) ? val : Object.values(val));
+      } else {
+        set(r, initial);
+        setData(initial);
+      }
+      setReady(true);
+    });
+    return () => unsub();
+  }, [path]);
+  const update = (newData) => {
+    setData(newData);
+    set(ref(db, path), newData);
+  };
+  return [data, update, ready];
+}
 
 const COLORS = {
   bg: "#0F1D35",
@@ -1430,12 +1469,25 @@ function LoginScreen({ onLogin }) {
 export default function App() {
   const [loggedIn, setLoggedIn] = useState(false);
   const [tab, setTab] = useState("dashboard");
-  const [products, setProducts] = useState(initialProducts);
-  const [clients,  setClients]  = useState(initialClients);
-  const [sales,    setSales]    = useState(initialSales);
-  const [envases,  setEnvases]  = useState([]);
+  const [products, setProducts, prodReady]  = useFirebase("products", initialProducts);
+  const [clients,  setClients,  cliReady]   = useFirebase("clients",  initialClients);
+  const [sales,    setSales,    salesReady]  = useFirebase("sales",    initialSales);
+  const [envases,  setEnvases,  envasesReady] = useFirebase("envases", []);
 
   if (!loggedIn) return <LoginScreen onLogin={() => setLoggedIn(true)} />;
+
+  const allReady = prodReady && cliReady && salesReady && envasesReady;
+  if (!allReady) return (
+    <div style={{
+      background: COLORS.bg, minHeight: "100vh", display: "flex",
+      flexDirection: "column", alignItems: "center", justifyContent: "center",
+      fontFamily: "system-ui", gap: 16,
+    }}>
+      <div style={{ fontSize: 40 }}>💧</div>
+      <div style={{ color: COLORS.accent, fontWeight: 700 }}>Cargando AguaPro...</div>
+      <div style={{ color: COLORS.muted, fontSize: 13 }}>Conectando con la nube</div>
+    </div>
+  );
 
   const screens = {
     dashboard: <Dashboard sales={sales} products={products} />,
