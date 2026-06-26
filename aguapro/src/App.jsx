@@ -18,31 +18,35 @@ const db = getDatabase(firebaseApp);
 function useFirebase(path, initial) {
   const [data, setData] = useState(null);
   const [ready, setReady] = useState(false);
+
   useEffect(() => {
     const r = ref(db, path);
     const unsub = onValue(r, snap => {
       const val = snap.val();
       if (val !== null) {
-        // Preserve id field from key if missing
-        const arr = Array.isArray(val)
-          ? val.filter(Boolean)
-          : Object.entries(val).map(([k, v]) => ({ ...v, id: v.id ?? k }));
+        // Firebase always returns object keys as strings
+        // Ensure each item's id matches its Firebase key (as string)
+        const arr = Object.entries(val).map(([k, v]) => ({ ...v, id: String(k) }));
         setData(arr);
       } else {
-        set(r, initial);
-        setData(initial);
+        // Initialize with string IDs
+        const withStringIds = initial.map(item => ({ ...item, id: String(item.id) }));
+        set(r, Object.fromEntries(withStringIds.map(i => [i.id, i])));
+        setData(withStringIds);
       }
       setReady(true);
     });
     return () => unsub();
   }, [path]);
+
   const update = (newData) => {
-    // Store as object keyed by id for Firebase reliability
-    const obj = {};
-    newData.forEach(item => { obj[item.id] = item; });
-    setData(newData);
+    // Always use string IDs as Firebase keys
+    const obj = Object.fromEntries(newData.map(item => [String(item.id), { ...item, id: String(item.id) }]));
+    const arr = newData.map(item => ({ ...item, id: String(item.id) }));
+    setData(arr);
     set(ref(db, path), obj);
   };
+
   return [data, update, ready];
 }
 
@@ -359,7 +363,7 @@ function Inventory({ products, setProducts, sales, envases }) {
   const saveNew = () => {
     if (!newForm.name || !newForm.price) return;
     setProducts([...products, {
-      id: Date.now(), name: newForm.name, proveedor: newForm.proveedor,
+      id: String(Date.now()), name: newForm.name, proveedor: newForm.proveedor,
       price: +newForm.price, stock: +newForm.stock || 0, tipo: newForm.tipo,
     }]);
     setNewForm({ name: "", proveedor: "", price: "", stock: "", tipo: "otro" });
@@ -499,7 +503,7 @@ function Sales({ sales, setSales, products, setProducts, clients }) {
     const unitPrice = precioAgua + precioEnvase;
     const total = unitPrice * +form.qty;
     setSales([...sales, {
-      id: Date.now(), client: form.client, marca: form.marca,
+      id: String(Date.now()), client: form.client, marca: form.marca,
       qty: +form.qty, unitPrice, precioAgua, precioEnvase,
       total, pago: form.pago, tipoVenta: form.tipoVenta, date: today(),
     }]);
@@ -803,7 +807,7 @@ function Clients({ clients, setClients, sales }) {
 
   const save = () => {
     if (!form.name) return;
-    setClients([...clients, { id: Date.now(), ...form }]);
+    setClients([...clients, { id: String(Date.now()), ...form }]);
     setForm({ name: "", phone: "", direccion: "", notas: "" });
     setAdding(false);
   };
@@ -1085,7 +1089,7 @@ function Importer({ clients, setClients }) {
     const nuevos = preview.filter(p =>
       !clients.find(c => c.name.toUpperCase() === p.nombre.toUpperCase())
     ).map(p => ({
-      id: Date.now() + Math.random(),
+      id: String(Date.now() + Math.random()),
       name: p.nombre, phone: "", direccion: p.direccion, notas: "",
     }));
     if (nuevos.length > 0) setClients(prev => [...prev, ...nuevos]);
@@ -1221,7 +1225,7 @@ function Envases({ envases, setEnvases, clients, products, setProducts }) {
 
   const save = () => {
     if (!form.client || !form.marca || form.qty < 1) return;
-    setEnvases([...envases, { id: Date.now(), ...form, qty: +form.qty }]);
+    setEnvases([...envases, { id: String(Date.now()), ...form, qty: +form.qty }]);
     // Descontar del stock
     setProducts(prev => prev.map(p => p.name === form.marca ? { ...p, stock: Math.max(0, p.stock - +form.qty) } : p));
     setForm({ client: "", marca: "", qty: 1, notas: "", date: today() });
